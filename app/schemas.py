@@ -1,9 +1,12 @@
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
 class ChatMessageRequest(BaseModel):
     session_id: str = Field(alias="sessionId")
     message: str
+    state: dict[str, Any] | None = None
 
     model_config = {"populate_by_name": True, "serialize_by_alias": True}
 
@@ -25,6 +28,7 @@ class OperationSummary(BaseModel):
 class ChatMessageResponse(BaseModel):
     response: str
     state: str
+    state_json: dict[str, Any] | None = Field(default=None, alias="stateJson")
     invoice_number: str | None = Field(default=None, alias="invoiceNumber")
     chips: list[str] | None = None
     operation_summary: OperationSummary | None = Field(default=None, alias="operationSummary")

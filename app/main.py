@@ -30,7 +30,7 @@ async def health() -> dict[str, str]:
 
 @app.post("/chat/message", response_model=ChatMessageResponse)
 async def chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
-    return await run_chat(request.session_id, request.message)
+    return await run_chat(request.session_id, request.message, request.state)
 
 
 if __name__ == "__main__":

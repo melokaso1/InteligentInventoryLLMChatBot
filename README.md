@@ -54,6 +54,8 @@ python run.py
 uvicorn app.main:app --reload --port 8000
 ```
 
+> **Importante:** Tras modificar `app/graph/chat_graph.py` u otro código del servicio, reinicia uvicorn para cargar los cambios. Con `--reload` suele bastar guardar el archivo; si el chatbot sigue con comportamiento antiguo, detén el proceso (Ctrl+C) y vuelve a ejecutar `python run.py`.
+
 También puedes ejecutar `app/main.py` directamente desde el IDE; el archivo ajusta `sys.path` automáticamente.
 
 > Si ves `ModuleNotFoundError: No module named 'app'`, estás en el directorio equivocado. Haz `cd ..` hasta `LLMChatBot/` o usa `python run.py`.
