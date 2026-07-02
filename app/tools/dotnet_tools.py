@@ -3,6 +3,8 @@ from typing import Any
 
 import httpx
 
+from app.utils.json_normalize import pick, pick_list, normalize_product_code
+
 DOTNET_API_URL = os.getenv("DOTNET_API_URL", "http://localhost:5151").rstrip("/")
 TAX_RATE = 0.08
 
@@ -14,15 +16,14 @@ async def search_products(query: str) -> list[dict[str, Any]]:
             params={"q": query, "pageSize": 5},
         )
         response.raise_for_status()
-        data = response.json()
-        return data.get("items") or data.get("Items") or []
+        return pick_list(response.json(), "items", "Items")
 
 
 async def get_product_by_code(code: str) -> dict[str, Any] | None:
-    products = await search_products(code)
-    normalized = code.strip().upper()
+    normalized = normalize_product_code(code)
+    products = await search_products(normalized)
     for product in products:
-        if str(product.get("code", "")).upper() == normalized:
+        if str(pick(product, "code", "Code", default="")).upper() == normalized:
             return product
     return products[0] if products else None
 
@@ -32,11 +33,11 @@ async def check_stock(product_code: str) -> dict[str, Any]:
     if not product:
         raise ValueError(f"No encontré el producto {product_code} en el catálogo El Plonsazo.")
     return {
-        "code": product.get("code"),
-        "name": product.get("name"),
-        "stock": product.get("stock", 0),
-        "price": float(product.get("price", 0)),
-        "status": product.get("status"),
+        "code": pick(product, "code", "Code"),
+        "name": pick(product, "name", "Name"),
+        "stock": pick(product, "stock", "Stock", default=0),
+        "price": float(pick(product, "price", "Price", default=0)),
+        "status": pick(product, "status", "Status"),
     }
 
 
@@ -50,7 +51,7 @@ async def create_sale(
         response = await client.post(
             f"{DOTNET_API_URL}/api/sales/from-chatbot",
             json={
-                "productCode": product_code,
+                "productCode": normalize_product_code(product_code),
                 "quantity": quantity,
                 "customerName": customer_name,
                 "customerEmail": customer_email,
@@ -71,9 +72,10 @@ async def get_invoice(invoice_number: str) -> dict[str, Any] | None:
         response = await client.get(f"{DOTNET_API_URL}/api/invoices", params={"q": invoice_number})
         if response.status_code >= 400:
             return None
-        data = response.json()
-        items = data.get("items") or data.get("Items") or []
+        items = pick_list(response.json(), "items", "Items")
+        target = invoice_number.strip().upper()
         for invoice in items:
-            if str(invoice.get("invoiceNumber", "")).upper() == invoice_number.upper():
+            number = str(pick(invoice, "invoiceNumber", "InvoiceNumber", default="")).upper()
+            if number == target:
                 return invoice
         return items[0] if items else None
