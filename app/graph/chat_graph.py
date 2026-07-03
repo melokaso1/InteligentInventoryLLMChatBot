@@ -98,6 +98,9 @@ FLOW_PHASES = frozenset(
         "awaiting_product_search",
         "awaiting_quantity",
         "awaiting_confirmation",
+        "awaiting_use_saved_address",
+        "awaiting_delivery_address",
+        "awaiting_save_address",
         "sale_completed",
     }
 )
@@ -186,6 +189,10 @@ _SESSION_FIELDS = (
     "awaiting_product_search",
     "customer_name",
     "customer_email",
+    "delivery_address",
+    "delivery_city",
+    "saved_delivery_address",
+    "saved_delivery_city",
     "invoice_number",
     "operation_summary",
     "chat_history",
@@ -1770,6 +1777,8 @@ def _clear_purchase_flow(session: dict[str, Any]) -> None:
             "adding_to_cart": False,
             "selected_product": {},
             "awaiting_quantity": False,
+            "delivery_address": "",
+            "delivery_city": "",
         }
     )
 
@@ -1797,6 +1806,8 @@ def _reset_flow(session: dict[str, Any]) -> None:
             "awaiting_stock_sku": False,
             "awaiting_product_search": False,
             "adding_to_cart": False,
+            "delivery_address": "",
+            "delivery_city": "",
         }
     )
 
@@ -1840,6 +1851,8 @@ def _start_awaiting_quantity(session: dict[str, Any], product: dict[str, Any]) -
             "awaiting_quantity": True,
             "awaiting_stock_sku": False,
             "awaiting_product_search": False,
+            "delivery_address": "",
+            "delivery_city": "",
         }
     )
 
@@ -2585,6 +2598,11 @@ def _build_offers(
         fields = _product_fields(product)
         if not fields["code"] or _is_test_product(fields["code"]):
             continue
+        status = str(pick(product, "status", "Status", default="active")).lower()
+        if status in {"inactive", "archived", "out_of_stock"}:
+            continue
+        if fields["stock"] <= 0:
+            continue
         offers.append(
             {
                 "productCode": fields["code"],
@@ -2787,6 +2805,9 @@ def _is_confirm(message: str) -> bool:
 
 def _is_cancel(message: str, phase: str = "idle") -> bool:
     text = _normalize_message(message).rstrip(".,!?")
+    if phase in {"awaiting_save_address", "awaiting_use_saved_address"}:
+        if text in {"no", "no gracias", "nop"}:
+            return False
     if text in _CANCEL_EXACT_PHRASES or _normalize_intent(message) == "cancelar":
         return True
     if any(phrase in text for phrase in ("cancelar", "cancelo", "no quiero", "anular")):
@@ -3064,6 +3085,282 @@ def _sync_cart_line(session: dict[str, Any]) -> None:
 
 def _confirmation_chips() -> list[str]:
     return ["Agregar otro producto", "Confirmar compra", "Cancelar"]
+
+
+_DELIVERY_PREFIX_RE = re.compile(
+    r"^(?:"
+    r"(?:mi\s+)?direcci[oó]n(?:\s+de\s+entrega)?\s*(?:es\s+)?|"
+    r"vivo\s+en\s+|"
+    r"entregar(?:lo|la|los|las)?\s+en\s+|"
+    r"env[ií]o\s+a\s+"
+    r")",
+    re.IGNORECASE,
+)
+
+_DELIVERY_CITY_SEPARATORS = re.compile(r"\s*[,;]\s*")
+
+_COLOMBIAN_CITIES: dict[str, str] = {
+    "bogota": "Bogotá",
+    "bogota dc": "Bogotá",
+    "bogota d c": "Bogotá",
+    "medellin": "Medellín",
+    "cali": "Cali",
+    "barranquilla": "Barranquilla",
+    "cartagena": "Cartagena",
+    "cartagena de indias": "Cartagena",
+    "cucuta": "Cúcuta",
+    "bucaramanga": "Bucaramanga",
+    "pereira": "Pereira",
+    "santa marta": "Santa Marta",
+    "ibague": "Ibagué",
+    "manizales": "Manizales",
+    "pasto": "Pasto",
+    "neiva": "Neiva",
+    "villavicencio": "Villavicencio",
+    "armenia": "Armenia",
+    "monteria": "Montería",
+    "valledupar": "Valledupar",
+    "popayan": "Popayán",
+    "sincelejo": "Sincelejo",
+    "tunja": "Tunja",
+    "riohacha": "Riohacha",
+    "florencia": "Florencia",
+    "quibdo": "Quibdó",
+    "arauca": "Arauca",
+    "yopal": "Yopal",
+    "mocoa": "Mocoa",
+    "san andres": "San Andrés",
+    "san jose del guaviare": "San José del Guaviare",
+    "leticia": "Leticia",
+}
+
+_COLOMBIAN_CITY_KEYS = sorted(_COLOMBIAN_CITIES.keys(), key=len, reverse=True)
+
+
+def _strip_accents(text: str) -> str:
+    normalized = unicodedata.normalize("NFD", text)
+    return "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+
+
+def _normalize_city_key(text: str) -> str:
+    return _strip_accents(text.lower().strip())
+
+
+def _match_city_at_end(text: str) -> tuple[str, str] | None:
+    normalized = _normalize_city_key(text)
+    for city_key in _COLOMBIAN_CITY_KEYS:
+        if normalized == city_key:
+            return "", _COLOMBIAN_CITIES[city_key]
+        if normalized.endswith(f" {city_key}"):
+            address = text[: len(text) - len(city_key)].strip(" .,-")
+            if len(address) >= 5:
+                return address, _COLOMBIAN_CITIES[city_key]
+    return None
+
+
+def _parse_delivery_address(message: str) -> tuple[str | None, str | None]:
+    """Parse Spanish delivery replies like «vivo en calle X, Bogotá»."""
+    text = message.strip()
+    if not text:
+        return None, None
+
+    text = _DELIVERY_PREFIX_RE.sub("", text).strip(" .")
+    if not text:
+        return None, None
+
+    if _DELIVERY_CITY_SEPARATORS.search(text):
+        address, city = _DELIVERY_CITY_SEPARATORS.split(text, maxsplit=1)
+        address = address.strip(" .")
+        city = city.strip(" .")
+        if len(address) >= 5 and len(city) >= 2:
+            city_match = _match_city_at_end(city)
+            return address, city_match[1] if city_match else city
+
+    en_match = re.search(r"\ben\b", text, re.IGNORECASE)
+    if en_match:
+        address = text[: en_match.start()].strip(" .")
+        city = text[en_match.end() :].strip(" .")
+        if len(address) >= 5 and len(city) >= 2:
+            city_match = _match_city_at_end(city)
+            return address, city_match[1] if city_match else city
+
+    city_match = _match_city_at_end(text)
+    if city_match:
+        address, city = city_match
+        if address and len(address) >= 5:
+            return address, city
+
+    return None, None
+
+
+_YES_PHRASES = frozenset(
+    {
+        "si",
+        "sí",
+        "sip",
+        "claro",
+        "dale",
+        "ok",
+        "okay",
+        "por supuesto",
+        "de acuerdo",
+        "afirmativo",
+        "usa esa direccion",
+        "usa esa dirección",
+        "usar direccion guardada",
+        "usar dirección guardada",
+    }
+)
+
+_NO_PHRASES = frozenset(
+    {
+        "no",
+        "nop",
+        "no gracias",
+        "mejor no",
+        "no quiero",
+        "otra direccion",
+        "otra dirección",
+    }
+)
+
+
+def _is_yes(message: str) -> bool:
+    text = _normalize_message(message).rstrip(".,!?").lstrip("¿").strip()
+    if text in _YES_PHRASES:
+        return True
+    return text.startswith(("si ", "sí ", "si,", "sí,"))
+
+
+def _is_no(message: str) -> bool:
+    text = _normalize_message(message).rstrip(".,!?").lstrip("¿").strip()
+    if text in _NO_PHRASES:
+        return True
+    return text.startswith(("no ", "no,", "no quiero"))
+
+
+def _save_address_prompt() -> tuple[str, list[str]]:
+    return (
+        "¿Quieres **guardar esta dirección** para próximos pedidos?",
+        ["Sí", "No"],
+    )
+
+
+def _enter_awaiting_save_address(session: dict[str, Any]) -> tuple[str, list[str], dict[str, Any]]:
+    session["phase"] = "awaiting_save_address"
+    summary = session.get("operation_summary") or _build_summary(session)
+    summary["status"] = "Pendiente de confirmar guardado de dirección"
+    session["operation_summary"] = summary
+    response, chips = _save_address_prompt()
+    return response, chips, summary
+
+
+def _delivery_address_prompt() -> tuple[str, list[str]]:
+    return (
+        "Para finalizar tu pedido, indícame la **dirección de entrega** y la **ciudad**. "
+        "Por ejemplo: `Calle 45 #12-30, Bogotá` o `vivo en Carrera 7 con 80, Medellín`.",
+        ["Cancelar"],
+    )
+
+
+def _enter_awaiting_delivery_address(session: dict[str, Any]) -> tuple[str, list[str], dict[str, Any]]:
+    session["phase"] = "awaiting_delivery_address"
+    summary = session.get("operation_summary") or _build_summary(session)
+    summary["status"] = "Pendiente de dirección de entrega"
+    session["operation_summary"] = summary
+    response, chips = _delivery_address_prompt()
+    return response, chips, summary
+
+
+def _enter_awaiting_use_saved_address(
+    session: dict[str, Any],
+    address: str,
+    city: str,
+) -> tuple[str, list[str], dict[str, Any]]:
+    session["phase"] = "awaiting_use_saved_address"
+    session["saved_delivery_address"] = address
+    session["saved_delivery_city"] = city
+    summary = session.get("operation_summary") or _build_summary(session)
+    summary["status"] = "Pendiente de confirmar dirección guardada"
+    session["operation_summary"] = summary
+    response = (
+        f"¿Usar dirección guardada: **{address}, {city}**?"
+    )
+    return response, ["Sí", "No"], summary
+
+
+async def _start_delivery_address_flow(
+    session: dict[str, Any],
+) -> tuple[str, list[str], dict[str, Any]]:
+    saved = await dotnet_tools.get_customer_saved_delivery_address(
+        session.get("customer_email", "")
+    )
+    if saved and saved.get("deliveryAddress") and saved.get("deliveryCity"):
+        return _enter_awaiting_use_saved_address(
+            session,
+            str(saved["deliveryAddress"]),
+            str(saved["deliveryCity"]),
+        )
+    return _enter_awaiting_delivery_address(session)
+
+
+async def _complete_sale_from_session(
+    session: dict[str, Any],
+    state: GraphState,
+    *,
+    save_delivery_address: bool = False,
+) -> tuple[str, list[str], dict[str, Any] | None, str]:
+    """Create the sale and return response, chips, summary, invoice_number."""
+    try:
+        result = await dotnet_tools.create_sale(
+            session["customer_name"],
+            session["customer_email"],
+            _cart_sale_line_items(session),
+            state["session_id"],
+            session.get("delivery_address"),
+            session.get("delivery_city"),
+            save_delivery_address=save_delivery_address,
+        )
+    except Exception:
+        logger.exception(
+            "create_sale failed for session %s cart %s",
+            state["session_id"],
+            session.get("cart"),
+        )
+        phase = session.get("phase", "")
+        if phase == "awaiting_save_address":
+            retry_chips = _save_address_prompt()[1]
+        elif phase in {"awaiting_delivery_address", "awaiting_use_saved_address"}:
+            retry_chips = _delivery_address_prompt()[1]
+        else:
+            retry_chips = _confirmation_chips()
+        return (
+            "No pude completar la compra en este momento. "
+            "Inténtalo de nuevo o escribe **Cancelar** para anular.",
+            retry_chips,
+            session.get("operation_summary") or None,
+            session.get("invoice_number", ""),
+        )
+
+    invoice_number = result.get("invoiceNumber") or result.get("invoice_number", "")
+    session["invoice_number"] = invoice_number
+    session["phase"] = "sale_completed"
+    summary = _build_summary(session)
+    summary["status"] = "Completada"
+    session["operation_summary"] = summary
+    item_count = len(session.get("cart") or [])
+    if item_count > 1:
+        response = (
+            f"¡Compra confirmada! Pedido **{result.get('orderNumber', '')}** con "
+            f"**{item_count} productos** — factura **{invoice_number}**. "
+            "El inventario ya fue actualizado en El Plonsazo."
+        )
+    else:
+        response = (
+            f"¡Compra confirmada! Pedido **{result.get('orderNumber', '')}** — "
+            f"factura **{invoice_number}**. El inventario ya fue actualizado en El Plonsazo."
+        )
+    return response, ["Nueva consulta"], summary, invoice_number
 
 
 def _format_cart_summary_text(summary: dict[str, Any]) -> str:
@@ -3591,46 +3888,8 @@ async def process_node(state: GraphState) -> GraphState:
                 session.get("measure_unit", "unit"),
             ) + ["Cancelar"]
         elif _is_confirm(message):
-            try:
-                result = await dotnet_tools.create_sale(
-                    session["customer_name"],
-                    session["customer_email"],
-                    _cart_sale_line_items(session),
-                    state["session_id"],
-                )
-            except Exception:
-                logger.exception(
-                    "create_sale failed for session %s cart %s",
-                    state["session_id"],
-                    session.get("cart"),
-                )
-                response = (
-                    "No pude completar la compra en este momento. "
-                    "Inténtalo de nuevo con **Confirmar compra** o **Cancelar** para anular."
-                )
-                chips = _confirmation_chips()
-                operation_summary = session.get("operation_summary") or None
-            else:
-                invoice_number = result.get("invoiceNumber") or result.get("invoice_number", "")
-                session["invoice_number"] = invoice_number
-                session["phase"] = "sale_completed"
-                summary = _build_summary(session)
-                summary["status"] = "Completada"
-                session["operation_summary"] = summary
-                operation_summary = summary
-                item_count = len(session.get("cart") or [])
-                if item_count > 1:
-                    response = (
-                        f"¡Compra confirmada! Pedido **{result.get('orderNumber', '')}** con "
-                        f"**{item_count} productos** — factura **{invoice_number}**. "
-                        "El inventario ya fue actualizado en El Plonsazo."
-                    )
-                else:
-                    response = (
-                        f"¡Compra confirmada! Pedido **{result.get('orderNumber', '')}** — "
-                        f"factura **{invoice_number}**. El inventario ya fue actualizado en El Plonsazo."
-                    )
-                chips = ["Nueva consulta"]
+            response, chips, summary = await _start_delivery_address_flow(session)
+            operation_summary = summary
         else:
             cart_update = _try_update_cart_quantity(session, message)
             if cart_update is not None:
@@ -3649,6 +3908,65 @@ async def process_node(state: GraphState) -> GraphState:
                 )
                 chips = _confirmation_chips()
                 operation_summary = session.get("operation_summary") or None
+
+    elif phase == "awaiting_use_saved_address":
+        if _is_yes(message):
+            session["delivery_address"] = session.get("saved_delivery_address", "")
+            session["delivery_city"] = session.get("saved_delivery_city", "")
+            response, chips, operation_summary, invoice_number = await _complete_sale_from_session(
+                session, state
+            )
+        elif _is_no(message):
+            response, chips, summary = _enter_awaiting_delivery_address(session)
+            operation_summary = summary
+        else:
+            address, city = _parse_delivery_address(message)
+            if address and city:
+                session["delivery_address"] = address
+                session["delivery_city"] = city
+                response, chips, summary = _enter_awaiting_save_address(session)
+                operation_summary = summary
+            else:
+                saved_address = session.get("saved_delivery_address", "")
+                saved_city = session.get("saved_delivery_city", "")
+                response = (
+                    f"Responde **Sí** para usar **{saved_address}, {saved_city}**, "
+                    "**No** para ingresar otra dirección, o escribe la nueva dirección."
+                )
+                chips = ["Sí", "No", "Cancelar"]
+                operation_summary = session.get("operation_summary") or None
+
+    elif phase == "awaiting_delivery_address":
+        address, city = _parse_delivery_address(message)
+        if address and city:
+            session["delivery_address"] = address
+            session["delivery_city"] = city
+            response, chips, summary = _enter_awaiting_save_address(session)
+            operation_summary = summary
+        else:
+            response = (
+                "Necesito la **dirección** y la **ciudad** de entrega. "
+                "Ejemplo: `Calle 10 #20-30, Bogotá` o `carrera 2da este 87 a 63 sur bogota`."
+            )
+            chips = ["Cancelar"]
+            operation_summary = session.get("operation_summary") or None
+
+    elif phase == "awaiting_save_address":
+        if _is_yes(message):
+            response, chips, operation_summary, invoice_number = await _complete_sale_from_session(
+                session, state, save_delivery_address=True
+            )
+        elif _is_no(message):
+            response, chips, operation_summary, invoice_number = await _complete_sale_from_session(
+                session, state, save_delivery_address=False
+            )
+        else:
+            response = (
+                "¿Quieres guardar esta dirección para próximos pedidos? "
+                "Responde **Sí** o **No**."
+            )
+            chips = ["Sí", "No", "Cancelar"]
+            operation_summary = session.get("operation_summary") or None
 
     elif phase == "sale_completed":
         session["phase"] = "idle"

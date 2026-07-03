@@ -212,7 +212,7 @@ def mock_catalog():
 
 
 
-    async def sale(customer_name, customer_email, line_items, session_id=None):
+    async def sale(customer_name, customer_email, line_items, session_id=None, delivery_address=None, delivery_city=None, save_delivery_address=False):
 
         captured_sales.append(
 
@@ -226,11 +226,22 @@ def mock_catalog():
 
                 "session_id": session_id,
 
+                "delivery_address": delivery_address,
+
+                "delivery_city": delivery_city,
+
+                "save_delivery_address": save_delivery_address,
+
             }
 
         )
 
         return {"orderNumber": "ORD-MULTI", "invoiceNumber": "INV-MULTI"}
+
+
+
+    async def saved_address(_email):
+        return None
 
 
 
@@ -243,6 +254,12 @@ def mock_catalog():
         patch.object(chat_graph.dotnet_tools, "search_products_paged", side_effect=search_paged),
 
         patch.object(chat_graph.dotnet_tools, "check_stock", side_effect=stock),
+
+        patch.object(
+            chat_graph.dotnet_tools,
+            "get_customer_saved_delivery_address",
+            side_effect=saved_address,
+        ),
 
         patch.object(chat_graph.dotnet_tools, "create_sale", side_effect=sale),
 
@@ -338,7 +355,13 @@ async def test_single_confirm_creates_one_order_with_two_lines(mock_catalog):
 
     result = await run_chat(session_id, "Confirmar compra")
 
+    assert result.state == "awaiting_delivery_address"
 
+    result = await run_chat(session_id, "Calle 45 #12-30, Bogotá")
+
+    assert result.state == "awaiting_save_address"
+
+    result = await run_chat(session_id, "no")
 
     assert result.state == "sale_completed"
 
@@ -353,6 +376,10 @@ async def test_single_confirm_creates_one_order_with_two_lines(mock_catalog):
     product_codes = {item["product_code"] for item in sale_payload["line_items"]}
 
     assert product_codes == {"PLZ-LSD-001", "PLZ-MJ-001"}
+
+    assert sale_payload["delivery_address"] == "Calle 45 #12-30"
+
+    assert sale_payload["delivery_city"] == "Bogotá"
 
 
 

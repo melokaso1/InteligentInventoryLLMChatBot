@@ -30,8 +30,14 @@ CATALOG_CONNECTION_ERROR = (
 )
 
 
+def _ngrok_skip_headers() -> dict[str, str]:
+    if "ngrok" in DOTNET_API_URL:
+        return {"ngrok-skip-browser-warning": "true"}
+    return {}
+
+
 def _service_headers() -> dict[str, str]:
-    return {CHATBOT_API_KEY_HEADER: CHATBOT_API_KEY}
+    return {CHATBOT_API_KEY_HEADER: CHATBOT_API_KEY, **_ngrok_skip_headers()}
 
 
 def _raise_catalog_error(exc: httpx.HTTPStatusError) -> None:
@@ -104,11 +110,40 @@ async def check_stock(product_code: str) -> dict[str, Any]:
     }
 
 
+async def get_customer_saved_delivery_address(
+    customer_email: str,
+) -> dict[str, Any] | None:
+    email = (customer_email or "").strip()
+    if not email:
+        return None
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.get(
+                f"{DOTNET_API_URL}/api/chatbot/customers/delivery-address",
+                params={"email": email},
+                headers=_service_headers(),
+            )
+        except httpx.RequestError:
+            return None
+        if response.status_code >= 400:
+            return None
+        data = response.json()
+        address = pick(data, "deliveryAddress", "DeliveryAddress")
+        city = pick(data, "deliveryCity", "DeliveryCity")
+        if not address or not city:
+            return None
+        return {"deliveryAddress": address, "deliveryCity": city}
+
+
 async def create_sale(
     customer_name: str,
     customer_email: str,
     line_items: list[dict[str, Any]],
     session_id: str | None = None,
+    delivery_address: str | None = None,
+    delivery_city: str | None = None,
+    *,
+    save_delivery_address: bool = False,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "lineItems": [
@@ -128,6 +163,12 @@ async def create_sale(
     }
     if session_id:
         payload["sessionId"] = session_id
+    if delivery_address:
+        payload["deliveryAddress"] = delivery_address.strip()
+    if delivery_city:
+        payload["deliveryCity"] = delivery_city.strip()
+    if save_delivery_address:
+        payload["saveDeliveryAddress"] = True
     async with httpx.AsyncClient(timeout=20.0) as client:
         try:
             response = await client.post(
@@ -155,7 +196,11 @@ async def create_sale(
 
 async def get_invoice(invoice_number: str) -> dict[str, Any] | None:
     async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.get(f"{DOTNET_API_URL}/api/invoices", params={"q": invoice_number})
+        response = await client.get(
+            f"{DOTNET_API_URL}/api/invoices",
+            params={"q": invoice_number},
+            headers=_ngrok_skip_headers(),
+        )
         if response.status_code >= 400:
             return None
         items = pick_list(response.json(), "items", "Items")

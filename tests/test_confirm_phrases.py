@@ -74,11 +74,19 @@ def mock_catalog():
     async def sale(*_args, **_kwargs):
         return {"orderNumber": "ORD-99", "invoiceNumber": "INV-99"}
 
+    async def saved_address(_email):
+        return None
+
     with (
         patch.object(chat_graph.dotnet_tools, "get_product_by_code", side_effect=get_code),
         patch.object(chat_graph.dotnet_tools, "search_products", side_effect=search),
         patch.object(chat_graph.dotnet_tools, "search_products_paged", side_effect=search_paged),
         patch.object(chat_graph.dotnet_tools, "check_stock", side_effect=stock),
+        patch.object(
+            chat_graph.dotnet_tools,
+            "get_customer_saved_delivery_address",
+            side_effect=saved_address,
+        ),
         patch.object(chat_graph.dotnet_tools, "create_sale", side_effect=sale),
     ):
         SESSIONS.clear()
@@ -108,8 +116,15 @@ async def test_awaiting_confirmation_completes_sale(message: str):
     session_id = f"confirm-{message[:8]}"
     SESSIONS[session_id] = _awaiting_confirmation_state()
 
-    result = await run_chat(session_id, message, _awaiting_confirmation_state())
+    confirm_result = await run_chat(session_id, message, _awaiting_confirmation_state())
+    assert confirm_result.state == "awaiting_delivery_address"
+    assert SESSIONS[session_id]["phase"] == "awaiting_delivery_address"
+    assert "dirección" in confirm_result.response.lower()
 
+    result = await run_chat(session_id, "Calle 45 #12-30, Bogotá")
+    assert result.state == "awaiting_save_address"
+
+    result = await run_chat(session_id, "no")
     assert result.state == "sale_completed"
     assert SESSIONS[session_id]["phase"] == "sale_completed"
     assert result.invoice_number == "INV-99"
@@ -117,17 +132,19 @@ async def test_awaiting_confirmation_completes_sale(message: str):
 
 
 @pytest.mark.asyncio
-async def test_create_sale_failure_stays_in_confirmation():
+async def test_create_sale_failure_stays_in_delivery_address():
     session_id = "confirm-fail"
     SESSIONS[session_id] = _awaiting_confirmation_state()
 
     async def failing_sale(*_args, **_kwargs):
         raise RuntimeError("API down")
 
-    with patch.object(chat_graph.dotnet_tools, "create_sale", side_effect=failing_sale):
-        result = await run_chat(session_id, "Confirmar compra", _awaiting_confirmation_state())
+    await run_chat(session_id, "Confirmar compra", _awaiting_confirmation_state())
 
-    assert result.state == "awaiting_confirmation"
-    assert SESSIONS[session_id]["phase"] == "awaiting_confirmation"
+    with patch.object(chat_graph.dotnet_tools, "create_sale", side_effect=failing_sale):
+        await run_chat(session_id, "Calle 45 #12-30, Bogotá")
+        result = await run_chat(session_id, "no")
+
+    assert result.state == "awaiting_save_address"
+    assert SESSIONS[session_id]["phase"] == "awaiting_save_address"
     assert "No pude completar la compra" in result.response
-    assert "Confirmar compra" in (result.chips or [])
