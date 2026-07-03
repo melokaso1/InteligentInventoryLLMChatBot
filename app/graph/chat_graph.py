@@ -426,6 +426,11 @@ _PRODUCT_ALIASES: dict[str, str] = {
     "coca": "coca",
     "perla": "cocaina",
     "drogaina": "cocaina",
+    "cocaina perlada": "cocaina perlada",
+    "perlada": "cocaina perlada",
+    "cocaina hcl": "cocaina hcl",
+    "pasta base": "pasta base",
+    "pastabase": "pasta base",
     # Marihuana / cannabis slang
     "la blanca": "marihuana",
     "blanca": "marihuana",
@@ -449,6 +454,8 @@ _PRODUCT_ALIASES: dict[str, str] = {
     "hongos": "hongos",
     "champis": "hongos",
     "champi": "hongos",
+    "penis envy": "hongos penis envy",
+    "golden teacher": "hongos golden teacher",
     # Poppers / nitritos
     "poppers": "poppers",
     "rush": "poppers",
@@ -456,9 +463,16 @@ _PRODUCT_ALIASES: dict[str, str] = {
     # LSD / alucinógenos
     "lsd": "lsd",
     "acido": "lsd",
+    "blotter": "lsd blotter",
+    "gel tabs": "lsd gel tabs",
+    "microdosis": "lsd microdosis",
     "dmt": "dmt",
+    "changa": "dmt changa",
+    "freebase": "dmt freebase",
     "ayahuasca": "ayahuasca",
     "mescalina": "mescalina",
+    "peyote": "mescalina peyote",
+    "san pedro": "mescalina san pedro",
     "ibogaina": "ibogaina",
     "nbome": "nbomes",
     "nbomes": "nbomes",
@@ -467,11 +481,16 @@ _PRODUCT_ALIASES: dict[str, str] = {
     "molly": "mdma",
     "extasis": "extasis",
     "ecstasy": "extasis",
+    "tesla": "extasis tesla",
+    "punisher": "extasis punisher",
+    "pink porsche": "extasis pink porsche",
     # Estimulantes
     "meth": "metanfetamina",
     "cristal": "metanfetamina",
     "ice": "metanfetamina",
     "metanfetamina": "metanfetamina",
+    "yaba": "metanfetamina yaba",
+    "pink ice": "metanfetamina pink ice",
     "anfetamina": "anfetamina",
     "speed": "anfetamina",
     "khat": "khat",
@@ -481,11 +500,16 @@ _PRODUCT_ALIASES: dict[str, str] = {
     "ketamina": "ketamina",
     "ketamina liquida": "ketamina liquida",
     "ketamina líquida": "ketamina liquida",
+    "ketamina polvo": "ketamina polvo",
+    "ketamina nasal": "ketamina nasal",
+    "esketamina": "ketamina nasal",
     "keta": "ketamina",
     "pcp": "pcp",
     # Opioides
     "heroina": "heroina",
     "heroin": "heroina",
+    "black tar": "heroina black tar",
+    "heroina black tar": "heroina black tar",
     "fentanilo": "fentanilo",
     "fenta": "fentanilo",
     "morfina": "morfina",
@@ -496,6 +520,9 @@ _PRODUCT_ALIASES: dict[str, str] = {
     "hidrocodona": "hidrocodona",
     "hidromorfona": "hidromorfona",
     "meperidina": "meperidina",
+    "oxycodona": "oxycodona",
+    "oxycontin": "oxycodona",
+    "tramadol": "tramadol",
     # Depresores / sedantes
     "ghb": "ghb",
     "barbituricos": "barbiturico",
@@ -505,6 +532,13 @@ _PRODUCT_ALIASES: dict[str, str] = {
     "benzo": "benzodiacepinas",
     "flunitrazepam": "flunitrazepam",
     "rohypnol": "flunitrazepam",
+    "diazepam": "diazepam",
+    "valium": "diazepam",
+    "alprazolam": "alprazolam",
+    "xanax": "alprazolam",
+    "lorazepam": "lorazepam",
+    "ativan": "lorazepam",
+    "clonazepam": "clonazepam",
     # Cannabinoides sintéticos
     "k2": "k2",
     "spice": "k2",
@@ -526,9 +560,13 @@ _PRODUCT_ALIASES: dict[str, str] = {
     "piedra": "crack",
     "metilfenidato": "metilfenidato",
     "ritalin": "metilfenidato",
+    "gorilla glue": "marihuana gorilla glue",
+    "og kush": "marihuana og kush",
     # Cannabis strains
     "blue dream": "marihuana blue dream",
     "marihuana blue": "marihuana blue dream",
+    "northern lights": "cannabis northern lights",
+    "live rosin": "cannabis live rosin",
 }
 
 _COKE_SLANG_TERMS = frozenset(
@@ -957,7 +995,10 @@ _CATEGORY_SEARCH_QUERIES: dict[str, tuple[str, ...]] = {
     "marijuana": ("marihuana", "marijuana"),
     "cannabis": ("cannabis", "marihuana"),
     "delta-8": ("delta-8", "delta"),
-    "polvo": ("cocaina", "metanfetamina"),
+    "perlada": ("perlada", "cocaina"),
+    "hcl": ("cocaina", "hcl"),
+    "pasta": ("pasta base",),
+    "base": ("pasta base", "crack"),
     "cocaina": ("cocaina",),
     "coca": ("coca", "cocaina"),
     "perico": ("cocaina",),
@@ -992,11 +1033,46 @@ _CATEGORY_SEARCH_QUERIES: dict[str, tuple[str, ...]] = {
     "khat": ("khat",),
     "flakka": ("flakka",),
     "catinonas": ("catinonas",),
+    "polvo": ("cocaina", "metanfetamina", "ketamina"),
     "ketamina": ("ketamina",),
+    "esketamina": ("ketamina", "esketamina"),
+    "nasal": ("ketamina", "esketamina"),
     "keta": ("ketamina",),
     "pcp": ("pcp",),
     "heroina": ("heroina",),
     "heroin": ("heroina",),
+    "black": ("black tar", "heroina"),
+    "tar": ("black tar", "heroina"),
+    "tesla": ("extasis", "tesla"),
+    "punisher": ("extasis", "punisher"),
+    "porsche": ("extasis", "porsche"),
+    "yaba": ("metanfetamina", "yaba"),
+    "diazepam": ("diazepam", "valium"),
+    "valium": ("diazepam", "valium"),
+    "alprazolam": ("alprazolam", "xanax"),
+    "xanax": ("alprazolam", "xanax"),
+    "lorazepam": ("lorazepam", "ativan"),
+    "ativan": ("lorazepam", "ativan"),
+    "clonazepam": ("clonazepam",),
+    "oxycodona": ("oxycodona", "oxycontin"),
+    "oxycontin": ("oxycodona", "oxycontin"),
+    "tramadol": ("tramadol",),
+    "changa": ("dmt", "changa"),
+    "freebase": ("dmt", "freebase"),
+    "peyote": ("mescalina", "peyote"),
+    "penis": ("hongos", "penis envy"),
+    "envy": ("hongos", "penis envy"),
+    "golden": ("hongos", "golden teacher"),
+    "teacher": ("hongos", "golden teacher"),
+    "gorilla": ("marihuana", "gorilla glue"),
+    "glue": ("marihuana", "gorilla glue"),
+    "kush": ("marihuana", "og kush"),
+    "northern": ("cannabis", "northern lights"),
+    "lights": ("cannabis", "northern lights"),
+    "rosin": ("cannabis", "rosin"),
+    "blotter": ("lsd", "blotter"),
+    "microdosis": ("lsd", "microdosis"),
+    "gel": ("lsd", "gel tabs"),
     "fentanilo": ("fentanilo",),
     "fenta": ("fentanilo",),
     "morfina": ("morfina",),
@@ -1010,8 +1086,8 @@ _CATEGORY_SEARCH_QUERIES: dict[str, tuple[str, ...]] = {
     "ghb": ("ghb",),
     "barbiturico": ("barbiturico",),
     "barbituricos": ("barbiturico",),
-    "benzodiacepinas": ("benzodiacepinas", "clonazepam", "flunitrazepam"),
-    "benzos": ("benzodiacepinas", "clonazepam"),
+    "benzodiacepinas": ("benzodiacepinas", "clonazepam", "flunitrazepam", "diazepam", "alprazolam"),
+    "benzos": ("benzodiacepinas", "clonazepam", "diazepam", "alprazolam"),
     "benzo": ("benzodiacepinas",),
     "flunitrazepam": ("flunitrazepam", "rohypnol"),
     "rohypnol": ("flunitrazepam",),
@@ -1199,6 +1275,40 @@ _QUERY_DISCRIMINATOR_WORDS = frozenset(
         "blotter",
         "premium",
         "indoor",
+        "nasal",
+        "esketamina",
+        "black",
+        "tar",
+        "tesla",
+        "punisher",
+        "porsche",
+        "yaba",
+        "diazepam",
+        "alprazolam",
+        "lorazepam",
+        "clonazepam",
+        "valium",
+        "xanax",
+        "ativan",
+        "oxycodona",
+        "tramadol",
+        "changa",
+        "freebase",
+        "peyote",
+        "penis",
+        "envy",
+        "golden",
+        "teacher",
+        "gorilla",
+        "glue",
+        "kush",
+        "northern",
+        "lights",
+        "rosin",
+        "hcl",
+        "pasta",
+        "base",
+        "gel",
     }
 )
 
@@ -1239,16 +1349,42 @@ def _product_match_score(fields: dict[str, Any], query: str | None) -> int:
         score += 15
     if "ketamina" in normalized_query and code.startswith("PLZ-KET"):
         score += 20
+        if any(word in query_words for word in ("liquida", "liquid")) and (
+            "liquida" in name or "liquid" in name
+        ):
+            score += 25
+        elif "polvo" in query_words and "polvo" in name:
+            score += 25
+        elif any(word in query_words for word in ("nasal", "esketamina")) and (
+            "nasal" in name or "esketamina" in name
+        ):
+            score += 25
+    if "cocaina perlada" in normalized_query and "perlada" in name:
+        score += 30
+    elif "cocaina hcl" in normalized_query and "hcl" in name:
+        score += 30
+    elif "pasta base" in normalized_query and "pasta base" in name:
+        score += 30
     if normalized_query in _COKE_SLANG_TERMS and code.startswith("PLZ-COC"):
         score += 25
         if fields["saleUnit"] in WEIGHT_UNITS:
             score += 10
-        if "perlada" in name or "polvo" in name:
+        if "perlada" in name or ("polvo" in name and "hcl" not in name):
             score += 15
-        if "crack" in name or "ficcion" in name:
+        if "crack" in name or "base" in name.lower():
             score -= 30
+        if "pasta base" in name:
+            score -= 25
+        if "hoja" in name:
+            score -= 20
     elif "crack" in normalized_query and "crack" in name:
         score += 20
+    if "heroina black tar" in normalized_query and "black tar" in name:
+        score += 30
+    elif "heroina" in normalized_query and code.startswith("PLZ-HER"):
+        score += 15
+        if len(query_words) <= 1 and name == "heroina":
+            score += 10
     if normalized_query.replace(" ", "") in name.replace(" ", ""):
         score += 3
     return score
