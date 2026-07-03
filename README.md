@@ -1,17 +1,19 @@
 # El Plonsazo — Chatbot (FastAPI + LangGraph)
 
-Microservicio de chat conversacional para consultas de stock y compras. Orquesta el flujo con **LangGraph** y consulta la API .NET mediante herramientas HTTP.
+Microservicio de chat conversacional para consultas de stock y compras. Orquesta el flujo con **LangGraph** (motor de reglas + sesiones) y consulta la API .NET mediante herramientas HTTP. El lenguaje natural lo resuelve el **motor de reglas** en `process_node` (intenciones, flujo de compra, consultas de precio, saludos).
 
 ## Stack
 
 - **FastAPI** — servidor HTTP
-- **LangGraph** — máquina de estados del diálogo
+- **LangGraph** — máquina de estados del diálogo (grafo determinista)
+- **LangChain Core** — herramientas y mensajes (opcional: OpenAI si hay API key)
 - **httpx** — cliente async hacia la API .NET
 
 ## Requisitos
 
 - Python **3.11+**
 - API .NET en ejecución (`http://localhost:5151`)
+- PostgreSQL en Docker (desde la raíz del monorepo)
 
 ## Instalación
 
@@ -24,17 +26,22 @@ python -m venv .venv
 source .venv/bin/activate
 
 pip install -r requirements.txt
-cp .env.example .env
 ```
+
+El repositorio incluye **`.env`** con valores de desarrollo listos para usar (no hace falta `cp .env.example .env`).
 
 ## Variables de entorno
 
 | Variable | Descripción | Por defecto |
 |----------|-------------|-------------|
 | `DOTNET_API_URL` | URL base de la API .NET | `http://localhost:5151` |
-| `OPENAI_API_KEY` | Reservado para extensiones con LLM | vacío |
+| `CHATBOT_API_KEY` | Clave hacia endpoints del chatbot en .NET | `elplonsazo-chatbot-dev-key` |
+| `OPENAI_API_KEY` | Opcional — respuestas conversacionales con OpenAI | vacío |
+| `OPENAI_MODEL` | Modelo OpenAI si la clave está configurada | `gpt-4o-mini` |
+| `OPENAI_TIMEOUT` | Timeout de inferencia (segundos) | `60` |
+| `OPENAI_HISTORY_LIMIT` | Mensajes de historial enviados al agente | `10` |
 
-El grafo actual funciona con reglas y herramientas HTTP; no requiere clave de OpenAI para el flujo del taller.
+Sin `OPENAI_API_KEY`, el chatbot funciona íntegramente con el **motor de reglas LangGraph**: saludos, búsqueda, stock, ofertas y flujo de compra. El usuario escribe en lenguaje natural o usa los chips del menú (Consultar stock, Buscar producto, Ver ofertas, ¿Cómo me comunico?).
 
 ## Normalización
 
@@ -124,7 +131,11 @@ LLMChatBot/
 │   ├── main.py              # FastAPI, CORS, rutas
 │   ├── schemas.py           # Pydantic request/response
 │   ├── graph/
-│   │   └── chat_graph.py    # LangGraph + sesiones en memoria
+│   │   └── chat_graph.py    # LangGraph + sesiones + motor de reglas
+│   ├── llm/
+│   │   ├── config.py        # OPENAI_* desde .env (opcional)
+│   │   ├── agent.py         # Agente OpenAI opcional (no usado en routing)
+│   │   └── tools.py         # buscar_productos, consultar_stock, listar_ofertas, registrar_venta
 │   └── tools/
 │       └── dotnet_tools.py  # Cliente HTTP a la API
 ├── requirements.txt
