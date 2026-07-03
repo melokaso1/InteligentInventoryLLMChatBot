@@ -12,12 +12,14 @@ from app.tools import dotnet_tools
 from app.utils.json_normalize import pick
 from app.utils.measure_units import (
     MEASURE_UNITS_PATTERN,
+    QUANTITY_PATTERN,
     VOLUME_UNITS,
     WEIGHT_UNITS,
     extract_quantity_with_unit,
     format_stock,
     is_quantity_reply,
     normalize_unit,
+    parse_quantity_text,
     resolve_sale_quantity,
     unit_label,
     unit_short,
@@ -25,7 +27,7 @@ from app.utils.measure_units import (
 
 logger = logging.getLogger(__name__)
 
-TAX_RATE = 0.08
+TAX_RATE = 0.19
 OFFERS_PAGE_SIZE = 12
 CATALOG_LOAD_MORE_CHIP = "Ver más productos"
 SESSIONS: dict[str, dict[str, Any]] = {}
@@ -55,6 +57,14 @@ INTENT_PHRASES: dict[str, tuple[str, ...]] = {
         "ofertas",
         "ver promociones",
         "promociones",
+    ),
+    "ver_factura": (
+        "ver factura",
+        "ver facturas",
+        "mis facturas",
+        "ver mis facturas",
+        "consultar factura",
+        "consultar facturas",
     ),
     "cargar_mas_catalogo": (
         "ver más productos",
@@ -218,11 +228,28 @@ def _session(session_id: str) -> dict[str, Any]:
     return SESSIONS[session_id]
 
 
-def _hydrate_session(session_id: str, state: dict[str, Any] | None) -> dict[str, Any]:
+def _apply_customer_context(
+    session: dict[str, Any],
+    customer_name: str | None = None,
+    customer_email: str | None = None,
+) -> None:
+    if customer_name and customer_name.strip():
+        session["customer_name"] = customer_name.strip()
+    if customer_email and customer_email.strip():
+        session["customer_email"] = customer_email.strip().lower()
+
+
+def _hydrate_session(
+    session_id: str,
+    state: dict[str, Any] | None,
+    customer_name: str | None = None,
+    customer_email: str | None = None,
+) -> dict[str, Any]:
     session = _session(session_id)
     if state:
         session.update(state)
         SESSIONS[session_id] = session
+    _apply_customer_context(session, customer_name, customer_email)
     return session
 
 
@@ -581,23 +608,31 @@ _PURCHASE_VERB = r"(?:yo\s+)?(?:dame|quiero|necesito)"
 
 _PURCHASE_QUANTITY_PATTERNS = (
     re.compile(
-        rf"\b(?:quiero|deseo|necesito|quisiera)\s+comprar\s+(?P<qty>\d+(?:[.,]\d+)?)\s*(?P<unit>{MEASURE_UNITS_PATTERN})?\s+de\s+(?:la\s+)?(?P<product>.+)",
+        rf"\b(?:quiero|deseo|necesito|quisiera)\s+comprar\s+(?P<qty>{QUANTITY_PATTERN})\s*(?P<unit>{MEASURE_UNITS_PATTERN})?\s+de\s+(?:la\s+)?(?P<product>.+)",
         re.IGNORECASE,
     ),
     re.compile(
-        rf"\bcomprar\s+(?P<qty>\d+(?:[.,]\d+)?)\s*(?P<unit>{MEASURE_UNITS_PATTERN})?\s+de\s+(?:la\s+)?(?P<product>.+)",
+        rf"\bcomprar\s+(?P<qty>{QUANTITY_PATTERN})\s*(?P<unit>{MEASURE_UNITS_PATTERN})?\s+de\s+(?:la\s+)?(?P<product>.+)",
         re.IGNORECASE,
     ),
     re.compile(
-        rf"^\s*{_PURCHASE_VERB}\s+(?P<qty>\d+(?:[.,]\d+)?)\s*(?P<unit>{MEASURE_UNITS_PATTERN})?\s*$",
+        rf"^\s*{_PURCHASE_VERB}\s+(?P<qty>{QUANTITY_PATTERN})\s*(?P<unit>{MEASURE_UNITS_PATTERN})?\s*$",
         re.IGNORECASE,
     ),
     re.compile(
-        rf"\b{_PURCHASE_VERB}\s+(?P<qty>\d+(?:[.,]\d+)?)\s*(?P<unit>{MEASURE_UNITS_PATTERN})?\s+de\s+(?:la\s+)?(?P<product>.+)",
+        rf"\b{_PURCHASE_VERB}\s+(?P<qty>{QUANTITY_PATTERN})\s*(?P<unit>{MEASURE_UNITS_PATTERN})?\s+de\s+(?:la\s+)?(?P<product>.+)",
         re.IGNORECASE,
     ),
     re.compile(
-        rf"\b{_PURCHASE_VERB}\s+(?P<product>.+?)\s+(?P<qty>\d+(?:[.,]\d+)?)\s*(?P<unit>{MEASURE_UNITS_PATTERN})\s*$",
+        rf"\b{_PURCHASE_VERB}\s+(?P<product>.+?)\s+(?P<qty>{QUANTITY_PATTERN})\s*(?P<unit>{MEASURE_UNITS_PATTERN})\s*$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"^(?P<qty>{QUANTITY_PATTERN})\s*(?P<unit>{MEASURE_UNITS_PATTERN})?\s+de\s+(?:la\s+)?(?P<product>.+)$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"^(?P<qty>{QUANTITY_PATTERN})\s*(?P<unit>{MEASURE_UNITS_PATTERN})\s+(?P<product>.+)$",
         re.IGNORECASE,
     ),
 )
@@ -691,8 +726,9 @@ def _extract_purchase_details(message: str) -> tuple[float | None, str | None, s
         match = pattern.search(text)
         if not match:
             continue
-        qty_text = match.group("qty").replace(",", ".")
-        quantity = float(qty_text)
+        quantity = parse_quantity_text(match.group("qty"))
+        if quantity is None:
+            continue
         unit_raw = match.groupdict().get("unit")
         unit = normalize_unit(unit_raw) if unit_raw else None
         product_raw = match.groupdict().get("product")
@@ -706,7 +742,16 @@ def _extract_purchase_details(message: str) -> tuple[float | None, str | None, s
     for pattern in _PURCHASE_PRODUCT_PATTERNS:
         match = pattern.search(text)
         if match:
-            product = _clean_product_query(match.group(1))
+            product_raw = match.group(1)
+            leading = _LEADING_QTY_PRODUCT_RE.match(product_raw.strip())
+            if leading:
+                quantity = parse_quantity_text(leading.group("qty"))
+                unit_raw = leading.groupdict().get("unit")
+                unit = normalize_unit(unit_raw) if unit_raw else None
+                product = _clean_product_query(leading.group("product"))
+                if product and quantity and quantity > 0 and not _is_vague_product_term(product):
+                    return quantity, unit, product
+            product = _clean_product_query(product_raw)
             if product and not re.fullmatch(r"\d+(?:[.,]\d+)?", product):
                 if _is_vague_product_term(product):
                     return None, None, None
@@ -720,8 +765,13 @@ def _extract_purchase_details(message: str) -> tuple[float | None, str | None, s
     return None, None, None
 
 
+_LEADING_QTY_PRODUCT_RE = re.compile(
+    rf"^(?P<qty>{QUANTITY_PATTERN})\s*(?P<unit>{MEASURE_UNITS_PATTERN})?\s+de\s+(?:la\s+)?(?P<product>.+)$",
+    re.IGNORECASE,
+)
+
 _MULTI_ITEM_SEGMENT_RE = re.compile(
-    rf"^(?P<qty>\d+(?:[.,]\d+)?)\s*(?P<unit>{MEASURE_UNITS_PATTERN})?\s+de\s+(?:la\s+)?(?P<product>.+)$",
+    rf"^(?P<qty>{QUANTITY_PATTERN})\s*(?P<unit>{MEASURE_UNITS_PATTERN})?\s+de\s+(?:la\s+)?(?P<product>.+)$",
     re.IGNORECASE,
 )
 
@@ -755,9 +805,8 @@ def _parse_multi_item_order(text: str) -> list[dict[str, Any]]:
         match = _MULTI_ITEM_SEGMENT_RE.match(segment.strip())
         if not match:
             continue
-        qty_text = match.group("qty").replace(",", ".")
-        quantity = float(qty_text)
-        if quantity <= 0:
+        quantity = parse_quantity_text(match.group("qty"))
+        if quantity is None or quantity <= 0:
             continue
         unit_raw = match.groupdict().get("unit")
         unit = normalize_unit(unit_raw) if unit_raw else None
@@ -1585,7 +1634,7 @@ def _quantity_chips(stock: float, sale_unit: str) -> list[str]:
     return [_format_quantity_label(value, sale_unit) for value in _quantity_chip_values(stock)]
 
 
-MENU_CHIPS = ["¿Cómo me comunico?", "Ver catálogo", "Consultar stock", "Buscar producto"]
+MENU_CHIPS = ["¿Cómo me comunico?", "Ver catálogo", "Ver factura", "Consultar stock", "Buscar producto"]
 
 COMMUNICATION_GUIDE = (
     "¡Hola! Soy **Drogui**, tu asistente de ventas en El Plonsazo.\n\n"
@@ -1594,6 +1643,7 @@ COMMUNICATION_GUIDE = (
     "• Consultar **stock** y precio de un producto (ej. «consultar stock de PLZ-MJ-001»)\n"
     "• **Buscar** en el catálogo (ej. «buscar marihuana» o «lsd»)\n"
     "• Ver el **catálogo** cuando lo pidas (ej. «ver catálogo»)\n"
+    "• Consultar tus **facturas** (ej. «ver factura» o «mis facturas»)\n"
     "• **Comprar** un producto (ej. «quiero comprar cocaina»)\n"
     "• **Cancelar** la operación en curso\n\n"
     "También puedes usar los botones del menú debajo del chat."
@@ -1605,10 +1655,18 @@ HELP_TEXT = COMMUNICATION_GUIDE
 
 def _idle_welcome() -> tuple[str, list[str]]:
     return (
-        "¡Hola! Soy **Drogui**, tu asistente de ventas en El Plonsazo. "
-        "Puedo ayudarte con stock, búsqueda y compras. "
-        "Si quieres ver productos, **pídeme ver el catálogo**. "
-        "Escríbeme en lenguaje natural o elige una opción del menú.",
+        "¡Hola! Soy **Drogui**, tu asistente de ventas en El Plonsazo.\n\n"
+        "Puedo ayudarte con stock, búsqueda y compras. Escríbeme en **lenguaje natural** "
+        "o elige una opción del menú. Para ver el catálogo completo, escribe **«ver catálogo»** "
+        "(se muestra en páginas de 5 productos). Para tus facturas, **pídeme ver factura**.\n\n"
+        "**Ejemplos:**\n"
+        "• «consultar stock de PLZ-MJ-001»\n"
+        "• «buscar lsd» o simplemente «lsd»\n"
+        "• «ver catálogo»\n"
+        "• «quiero comprar cocaina»\n"
+        "• «ver factura» o «mis facturas»\n"
+        "• «agregar al carrito»\n"
+        "• «cancelar»",
         MENU_CHIPS,
     )
 
@@ -2539,9 +2597,9 @@ def _build_offers(
     return offers, len(offers)
 
 
-def _catalog_chips(offers_count: int, catalog_total: int) -> list[str]:
+def _catalog_chips(session: dict[str, Any]) -> list[str]:
     chips = ["Ver catálogo", "busco marihuana"]
-    if offers_count < catalog_total:
+    if not session.get("catalog_fully_loaded"):
         chips.insert(0, CATALOG_LOAD_MORE_CHIP)
     return chips
 
@@ -2566,7 +2624,7 @@ async def _handle_ver_ofertas(
     session: dict[str, Any],
     *,
     load_more: bool = False,
-    load_all: bool = False,
+    load_all: bool = True,
 ) -> tuple[str, list[str], list[dict[str, Any]], int]:
     if load_all:
         session["catalog_offers"] = []
@@ -2590,6 +2648,7 @@ async def _handle_ver_ofertas(
             page += 1
         session["catalog_page"] = page
         session["catalog_query"] = query
+        session["catalog_fully_loaded"] = True
     elif load_more and session.get("catalog_offers"):
         page = int(session.get("catalog_page", 1)) + 1
         query = str(session.get("catalog_query", "PLZ"))
@@ -2602,6 +2661,10 @@ async def _handle_ver_ofertas(
                 existing_codes.add(offer["productCode"])
         session["catalog_page"] = page
         session["catalog_query"] = query
+        session["catalog_fully_loaded"] = (
+            len(session.get("catalog_offers", [])) >= catalog_total
+            or len(new_offers) < OFFERS_PAGE_SIZE
+        )
     else:
         page = 1
         query = "PLZ"
@@ -2617,16 +2680,21 @@ async def _handle_ver_ofertas(
                 existing_codes.add(offer["productCode"])
         session["catalog_page"] = page
         session["catalog_query"] = query
+        session["catalog_fully_loaded"] = (
+            len(session.get("catalog_offers", [])) >= catalog_total
+            or len(new_offers) < OFFERS_PAGE_SIZE
+        )
 
     offers = list(session.get("catalog_offers", []))
     total = catalog_total if offers else 0
-    chips = _catalog_chips(len(offers), total)
+    chips = _catalog_chips(session)
 
     if offers:
-        if load_all or (load_more and len(offers) >= total):
+        if session.get("catalog_fully_loaded"):
             response = (
                 f"Catálogo completo: **{len(offers)}** productos. "
-                "¿Qué producto te interesa?"
+                "Toca un producto para seleccionarlo o escribe su SKU. "
+                "Usa las flechas del carrusel para ver más páginas."
             )
         elif load_more:
             response = (
@@ -2643,6 +2711,22 @@ async def _handle_ver_ofertas(
             "Prueba con un SKU como **PLZ-MJ-001** o usa **Buscar producto**."
         )
     return response, chips, offers, total
+
+
+async def _handle_ver_factura(session: dict[str, Any]) -> tuple[str, list[str], list[dict[str, Any]], int]:
+    session["phase"] = "idle"
+    invoice_number = str(session.get("invoice_number") or "").strip()
+    if invoice_number:
+        response = (
+            f"Tu última factura es **{invoice_number}**. "
+            "Puedes ver el detalle y el historial en **Mis facturas** desde el menú de la aplicación."
+        )
+    else:
+        response = (
+            "Puedes consultar tus facturas en **Mis facturas** desde el menú lateral. "
+            "Si acabas de comprar, también aparecerán ahí."
+        )
+    return response, MENU_CHIPS, [], 0
 
 
 async def _handle_menu_intent(
@@ -2676,6 +2760,8 @@ async def _handle_menu_intent(
             [],
             0,
         )
+    if intent == "ver_factura":
+        return await _handle_ver_factura(session)
     response, chips, offers, total = await _handle_ver_ofertas(session)
     session["phase"] = "idle"
     return response, chips, offers, total
@@ -2785,8 +2871,9 @@ def _extract_add_to_cart_details(
         remainder = text[len(prefix) :].strip()
         match = _MULTI_ITEM_SEGMENT_RE.match(remainder)
         if match:
-            qty_text = match.group("qty").replace(",", ".")
-            quantity = float(qty_text)
+            quantity = parse_quantity_text(match.group("qty"))
+            if quantity is None or quantity <= 0:
+                continue
             unit_raw = match.groupdict().get("unit")
             unit = normalize_unit(unit_raw) if unit_raw else None
             product = _clean_product_query(match.group("product"))
@@ -2800,13 +2887,15 @@ def _extract_add_to_cart_details(
         remainder = text[len("tambien quiero ") :].strip()
         match = _MULTI_ITEM_SEGMENT_RE.match(remainder)
         if match:
-            qty_text = match.group("qty").replace(",", ".")
-            quantity = float(qty_text)
-            unit_raw = match.groupdict().get("unit")
-            unit = normalize_unit(unit_raw) if unit_raw else None
-            product = _clean_product_query(match.group("product"))
-            if product and quantity > 0 and not _is_vague_product_term(product):
-                return quantity, unit, product
+            quantity = parse_quantity_text(match.group("qty"))
+            if quantity is None or quantity <= 0:
+                pass
+            else:
+                unit_raw = match.groupdict().get("unit")
+                unit = normalize_unit(unit_raw) if unit_raw else None
+                product = _clean_product_query(match.group("product"))
+                if product and quantity > 0 and not _is_vague_product_term(product):
+                    return quantity, unit, product
         if remainder:
             return None, None, _clean_product_query(remainder)
     return None, None, None
@@ -3142,7 +3231,7 @@ async def process_node(state: GraphState) -> GraphState:
             "offers_total_count": offers_total_count,
         }
 
-    if intent in ("ayuda", "consultar_stock", "buscar_producto", "ver_ofertas") and _is_menu_intent(message):
+    if intent in ("ayuda", "consultar_stock", "buscar_producto", "ver_ofertas", "ver_factura") and _is_menu_intent(message):
         response, chips, offers, offers_total_count = await _handle_menu_intent(intent, session)
         return {
             **state,
@@ -3731,8 +3820,10 @@ async def run_chat(
     session_id: str,
     message: str,
     state: dict[str, Any] | None = None,
+    customer_name: str | None = None,
+    customer_email: str | None = None,
 ) -> ChatMessageResponse:
-    session = _hydrate_session(session_id, state)
+    session = _hydrate_session(session_id, state, customer_name, customer_email)
 
     if session.get("phase") == "sale_completed" and _is_greeting(message):
         _reset_flow(session)

@@ -47,8 +47,8 @@ def _awaiting_confirmation_state() -> dict:
             "measureUnit": "gram",
             "unitPrice": 85000.0,
             "subtotal": 170000.0,
-            "tax": 13600.0,
-            "total": 183600.0,
+            "tax": 32300.0,
+            "total": 202300.0,
         },
     }
 

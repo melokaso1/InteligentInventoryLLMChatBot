@@ -16,7 +16,7 @@ from app.utils.measure_units import (
 DOTNET_API_URL = os.getenv("DOTNET_API_URL", "http://localhost:5151").rstrip("/")
 CHATBOT_API_KEY = os.getenv("CHATBOT_API_KEY", "elplonsazo-chatbot-dev-key")
 CHATBOT_API_KEY_HEADER = "X-Chatbot-Api-Key"
-TAX_RATE = 0.08
+TAX_RATE = 0.19
 
 
 class CatalogError(Exception):

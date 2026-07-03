@@ -35,8 +35,8 @@ def test_chat_message_json_utf8_charset(client):
         measure_unit="gram",
         unit_price=60000,
         subtotal=900000,
-        tax=72000,
-        total=972000,
+        tax=171000,
+        total=1071000,
     )
     mock_result = ChatMessageResponse(
         response=accented_response,

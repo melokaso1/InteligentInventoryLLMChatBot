@@ -16,6 +16,8 @@ from app.utils.measure_units import (
         ("2 kilos", 2.0, "kilogram"),
         ("1.5 litros", 1.5, "liter"),
         ("3 unidades", 3.0, "unit"),
+        ("una unidad", 1.0, "unit"),
+        ("4 pastillas", 4.0, "unit"),
         ("250 mg", 250.0, "milligram"),
         ("100 ml", 100.0, "milliliter"),
     ],
@@ -46,6 +48,7 @@ def test_resolve_sale_quantity_rejects_fractional_units() -> None:
     [
         "15 gramos",
         "quiero 15 gramos",
+        "una unidad",
         "500 g",
         "2 kilos",
         "100 ml",

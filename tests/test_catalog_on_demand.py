@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import patch
 
 from app.graph import chat_graph
-from app.graph.chat_graph import CATALOG_LOAD_MORE_CHIP, MENU_CHIPS, OFFERS_PAGE_SIZE, SESSIONS, run_chat
+from app.graph.chat_graph import CATALOG_LOAD_MORE_CHIP, MENU_CHIPS, SESSIONS, run_chat
 
 CATALOG = {
     "PLZ-MJ-001": {
@@ -94,12 +94,31 @@ async def test_idle_greeting_does_not_include_offers():
     assert result.offers_total_count is None
     assert "catálogo" in result.response.lower() or "catalogo" in result.response.lower()
     assert "Ver catálogo" in (result.chips or [])
+    assert "Ver factura" in (result.chips or [])
 
 
 @pytest.mark.asyncio
-async def test_menu_chips_promote_catalog_not_implicit_listing():
+async def test_menu_chips_include_catalog_and_invoice():
     assert "Ver catálogo" in MENU_CHIPS
-    assert MENU_CHIPS.index("Ver catálogo") < len(MENU_CHIPS)
+    assert "Ver factura" in MENU_CHIPS
+    assert MENU_CHIPS.index("Ver catálogo") < MENU_CHIPS.index("Ver factura")
+
+
+@pytest.mark.asyncio
+async def test_ver_factura_chip_returns_invoice_guidance():
+    result = await run_chat("invoice-chip", "Ver factura")
+
+    assert "factura" in result.response.lower()
+    assert "Mis facturas" in result.response
+    assert "Ver factura" in (result.chips or [])
+
+
+@pytest.mark.asyncio
+async def test_ver_factura_message_returns_invoice_guidance():
+    result = await run_chat("invoice-msg", "mis facturas")
+
+    assert "factura" in result.response.lower()
+    assert result.offers is None
 
 
 @pytest.mark.asyncio
@@ -125,9 +144,9 @@ async def test_catalog_pagination_first_page(mock_large_catalog):
     result = await run_chat("catalog-page-1", "ver catálogo")
 
     assert result.offers is not None
-    assert len(result.offers) == OFFERS_PAGE_SIZE
+    assert len(result.offers) == len(LARGE_CATALOG) - 1
     assert result.offers_total_count == len(LARGE_CATALOG)
-    assert CATALOG_LOAD_MORE_CHIP in (result.chips or [])
+    assert CATALOG_LOAD_MORE_CHIP not in (result.chips or [])
 
 
 @pytest.mark.asyncio
@@ -138,8 +157,8 @@ async def test_catalog_load_more_appends_offers(mock_large_catalog):
 
     assert first.offers is not None
     assert second.offers is not None
-    assert len(second.offers) > len(first.offers)
-    assert len(second.offers) <= len(LARGE_CATALOG)
+    assert len(first.offers) == len(LARGE_CATALOG) - 1
+    assert len(second.offers) == len(first.offers)
 
 
 @pytest.mark.asyncio

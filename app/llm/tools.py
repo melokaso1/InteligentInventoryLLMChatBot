@@ -9,7 +9,7 @@ from app.utils.json_normalize import pick
 from app.utils.measure_units import normalize_unit, resolve_sale_quantity, unit_label
 
 OFFERS_LIMIT = 8
-TAX_RATE = 0.08
+TAX_RATE = 0.19
 
 
 def _format_product(product: dict[str, Any]) -> dict[str, Any]:

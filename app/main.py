@@ -39,7 +39,9 @@ async def health() -> dict[str, str]:
 @app.post("/chat/message")
 async def chat_message(request: ChatMessageRequest) -> JSONResponse:
     result: ChatMessageResponse = await run_chat(
-        request.session_id, request.message, request.state
+        request.session_id, request.message, request.state,
+        customer_name=request.customer_name,
+        customer_email=request.customer_email,
     )
     return JSONResponse(
         content=result.model_dump(mode="json", by_alias=True),

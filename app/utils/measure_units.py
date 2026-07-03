@@ -7,6 +7,8 @@ UNIT_ALIASES: dict[str, str] = {
     "unidad": "unit",
     "unidades": "unit",
     "u": "unit",
+    "pastilla": "unit",
+    "pastillas": "unit",
     "gram": "gram",
     "grams": "gram",
     "gramo": "gram",
@@ -64,12 +66,43 @@ MEASURE_UNITS_PATTERN = (
     r"miligramos|mg|"
     r"mililitros|ml|"
     r"litros|litro|l(?!\w)|"
-    r"unidades|unidad|u(?!\w)"
+    r"unidades|unidad|u(?!\w)|"
+    r"pastillas|pastilla"
     r")"
 )
 
+SPANISH_NUMBER_WORDS: dict[str, float] = {
+    "un": 1,
+    "una": 1,
+    "uno": 1,
+    "dos": 2,
+    "tres": 3,
+    "cuatro": 4,
+    "cinco": 5,
+    "seis": 6,
+    "siete": 7,
+    "ocho": 8,
+    "nueve": 9,
+    "diez": 10,
+    "once": 11,
+    "doce": 12,
+    "trece": 13,
+    "catorce": 14,
+    "quince": 15,
+    "veinte": 20,
+    "treinta": 30,
+    "cuarenta": 40,
+    "cincuenta": 50,
+}
+
+_QUANTITY_WORD_PATTERN = "|".join(
+    rf"\b{re.escape(word)}\b"
+    for word in sorted(SPANISH_NUMBER_WORDS, key=len, reverse=True)
+)
+QUANTITY_PATTERN = rf"(?:\d+(?:[.,]\d+)?|{_QUANTITY_WORD_PATTERN})"
+
 _QUANTITY_WITH_UNIT_RE = re.compile(
-    rf"(?P<qty>\d+(?:[.,]\d+)?)\s*(?P<unit>{MEASURE_UNITS_PATTERN})?",
+    rf"(?P<qty>{QUANTITY_PATTERN})\s*(?P<unit>{MEASURE_UNITS_PATTERN})?",
     re.IGNORECASE,
 )
 
@@ -77,6 +110,15 @@ _QUANTITY_VERB_PREFIX_RE = re.compile(
     r"^(?:yo\s+)?(?:dame|quiero|necesito)\s+",
     re.IGNORECASE,
 )
+
+
+def parse_quantity_text(text: str) -> float | None:
+    normalized = text.strip().lower().replace(",", ".")
+    if re.fullmatch(r"\d+(?:\.\d+)?", normalized):
+        value = float(normalized)
+        return value if value > 0 else None
+    value = SPANISH_NUMBER_WORDS.get(normalized)
+    return value if value and value > 0 else None
 
 
 def normalize_unit(value: str | None, default: str = "unit") -> str:
@@ -169,11 +211,10 @@ def extract_quantity_with_unit(message: str) -> tuple[float | None, str | None]:
     match = _QUANTITY_WITH_UNIT_RE.search(text)
     if not match:
         return None, None
-    qty_raw = match.group("qty").replace(",", ".")
-    qty = float(qty_raw)
+    qty = parse_quantity_text(match.group("qty"))
     unit_raw = match.group("unit")
     unit = normalize_unit(unit_raw) if unit_raw else None
-    return (qty if qty > 0 else None), unit
+    return qty, unit
 
 
 def is_quantity_reply(message: str) -> bool:
@@ -187,12 +228,8 @@ def is_quantity_reply(message: str) -> bool:
     match = _QUANTITY_WITH_UNIT_RE.match(text)
     if not match:
         return False
-    qty_raw = match.group("qty").replace(",", ".")
-    try:
-        qty = float(qty_raw)
-    except ValueError:
-        return False
-    if qty <= 0:
+    qty = parse_quantity_text(match.group("qty"))
+    if qty is None:
         return False
     remainder = text[match.end() :].strip(" .,!?")
     return remainder == ""

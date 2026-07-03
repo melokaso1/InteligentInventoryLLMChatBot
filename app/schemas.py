@@ -7,6 +7,8 @@ class ChatMessageRequest(BaseModel):
     session_id: str = Field(alias="sessionId")
     message: str
     state: dict[str, Any] | None = None
+    customer_name: str | None = Field(default=None, alias="customerName")
+    customer_email: str | None = Field(default=None, alias="customerEmail")
 
     model_config = {"populate_by_name": True, "serialize_by_alias": True}
 
