@@ -6,9 +6,9 @@ Microservicio de chat conversacional para un catálogo de inventario ficticio (p
 
 | Módulo | Enlace |
 |--------|--------|
-| Frontend | _pega aquí el link del repositorio_ |
-| Backend (.NET API) | _pega aquí el link del repositorio_ |
-| Chatbot (este servicio) | _pega aquí el link del repositorio, si aplica_ |
+| Frontend | https://github.com/melokaso1/InteligentInventoryFrontend |
+| Backend (.NET API) | https://github.com/melokaso1/InteligentInventoryBackend |
+| Chatbot (este servicio) | https://github.com/melokaso1/InteligentInventoryLLMChatBot |
 
 ---
 
@@ -56,7 +56,9 @@ LLMChatBot/
 
 - Python **3.11+**
 - API .NET en ejecución (`http://localhost:5151`)
-- PostgreSQL en Docker (desde la raíz del monorepo)
+- PostgreSQL en Docker (`cd Backend && docker compose up -d`)
+
+> Entorno previsto: **solo local**. Docker se usa únicamente para PostgreSQL; no hay despliegue en Netlify ni en la nube.
 
 ## 🔧 Instalación
 

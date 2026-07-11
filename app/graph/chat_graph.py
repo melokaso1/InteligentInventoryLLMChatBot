@@ -2541,6 +2541,7 @@ async def _resolve_add_to_cart_product(
                 response = f"{prefix}\n\n{response}"
             return response, chips, summary
         session["pending_sale"] = True
+        _clear_current_product(session)
         response, chips, summary = _enter_awaiting_confirmation(session)
         prefix = _format_order_warnings(warnings)
         if prefix:

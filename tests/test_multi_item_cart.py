@@ -662,6 +662,30 @@ async def test_crack_alias_picks_crack_sku(mock_catalog):
 
 
 @pytest.mark.asyncio
+async def test_cocaine_grams_then_ketamine_summary_has_two_line_items(mock_catalog):
+    """4g cocaine + 3 ketamine must expose both lines in operation_summary."""
+    session_id = "coc-ket-summary"
+    await run_chat(session_id, "quiero 4 gramos de cocaina")
+    result = await run_chat(session_id, "y agrega 3 unidades de ketamina")
+
+    summary = SESSIONS[session_id]["operation_summary"]
+    assert summary is not None
+    assert len(summary["lineItems"]) == 2
+
+    codes = {item["productCode"] for item in summary["lineItems"]}
+    assert codes == {"PLZ-COC-099", "PLZ-KET-021"}
+
+    by_code = {item["productCode"]: item for item in summary["lineItems"]}
+    assert by_code["PLZ-COC-099"]["quantity"] == 4
+    assert by_code["PLZ-COC-099"]["subtotal"] == 720000
+    assert by_code["PLZ-KET-021"]["quantity"] == 3
+    assert by_code["PLZ-KET-021"]["subtotal"] == 540000
+
+    assert result.operation_summary is not None
+    assert len(result.operation_summary.line_items) == 2
+
+
+@pytest.mark.asyncio
 async def test_add_ketamina_during_confirmation_with_quantity(mock_catalog):
     """«y agrega 3 unidades de ketamina» must append to cart and re-show summary."""
     session_id = "confirm-add-keta"
